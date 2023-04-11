@@ -9,11 +9,15 @@
 #include <time.h>
 
 #include "./tiny-AES-c/aes.h"
+#include "paylaod.h"
 
 #define SANITY(x)	do { if (__builtin_expect(!!(x), 0)) error("Error at %s:%d\n", __FILE__, __LINE__); } while (0)
 #define LOADER_NAME	"loader"
 
 static size_t file_size;
+static size_t payload_ep;
+static uint64_t key[2];
+static uint64_t iv[2];
 
 static inline void __attribute((noreturn, format (printf, 1, 2))) error(const char *fmt, ...)
 {
@@ -45,15 +49,16 @@ static void check_elf(void *file)
 	const uint8_t magic[] = { 0x7f, 'E', 'L', 'F' };
 
 	SANITY(memcmp(hdr->e_ident, magic, 4));
-	SANITY(hdr->e_type != ET_EXEC);
+	SANITY(hdr->e_type != ET_DYN && hdr->e_type != ET_EXEC);
 	SANITY(hdr->e_machine != EM_X86_64);
+
+	payload_ep = hdr->e_entry;
 }
 
 static void *encrypt_elf(const char *file)
 {
 	size_t enc_size = (file_size + 16) + (file_size % 16);
 	void *mem;
-	size_t key;
 	struct AES_ctx ctx;
 
 	srand(time(NULL));
@@ -63,19 +68,27 @@ static void *encrypt_elf(const char *file)
 
 	memcpy(mem, file, file_size);
 
-	key = rand();
+	key[0] = rand();
+	key[1] = rand();
 
-	AES_init_ctx(&ctx, &key);
+	iv[0] = rand();
+	iv[1] = rand();
+
+	AES_init_ctx_iv(&ctx, (void *) &key, (void *) &iv);
 	AES_CTR_xcrypt_buffer(&ctx, mem, enc_size);
+
+	file_size = enc_size;
 
 	return mem;
 }
 
-static void write_file(void *loader, size_t loader_size, int fd)
+static void write_file(const void *loader, size_t loader_size, const void *payload, size_t payload_size, int fd)
 {
 	Elf64_Ehdr ehdr = {};
 	Elf64_Phdr phdr;
 	ssize_t res;
+	struct result_binary bin;
+	char buf[] = {};
 
 	memcpy(ehdr.e_ident, ELFMAG, SELFMAG);
 	ehdr.e_ident[EI_CLASS] = ELFCLASS64;
@@ -85,7 +98,7 @@ static void write_file(void *loader, size_t loader_size, int fd)
 	ehdr.e_type = ET_EXEC;
 	ehdr.e_machine = EM_X86_64;
 	ehdr.e_version = EV_CURRENT;
-	ehdr.e_entry = 0x10000; // sizeof(Elf64_Ehdr) + sizeof(Elf64_Phdr);
+	ehdr.e_entry = (0x10000 + payload_ep + file_size + 4096) - ((0x10000 + payload_ep + file_size) % 4096);; // sizeof(Elf64_Ehdr) + sizeof(Elf64_Phdr);
 	ehdr.e_phoff = sizeof(Elf64_Ehdr);
 	ehdr.e_shoff = 0;
 	ehdr.e_flags = 0;
@@ -98,9 +111,9 @@ static void write_file(void *loader, size_t loader_size, int fd)
 
 	phdr.p_type = PT_LOAD;
 	phdr.p_offset = 0x1000; // sizeof(Elf64_Ehdr) + sizeof(Elf64_Phdr);
-	phdr.p_vaddr = 0x10000;
+	phdr.p_vaddr = (0x10000 + payload_ep + file_size + 4096) - ((0x10000 + payload_ep + file_size) % 4096);
 	phdr.p_paddr = 0;
-	phdr.p_filesz = loader_size;
+	phdr.p_filesz = loader_size + file_size;
 	phdr.p_memsz = phdr.p_filesz;
 	phdr.p_flags = PF_R | PF_W | PF_X;
 	phdr.p_align = 0x1000;
@@ -113,7 +126,17 @@ static void write_file(void *loader, size_t loader_size, int fd)
 	/* p_offset must be page aligned, so move cursor to page */
 
 	lseek(fd, 4096, SEEK_SET);
-	write(fd, loader, loader_size);
+
+	SANITY(write(fd, loader, loader_size) != loader_size);
+	SANITY(write(fd, buf, loader_size % 8) != loader_size % 8);	/* satisfy alignment */
+
+	bin.payload_size = payload_size;
+	memcpy(bin.key, key, sizeof(key));
+	memcpy(bin.iv, iv, sizeof(iv));
+
+	SANITY(write(fd, &bin, sizeof(bin)) != sizeof(bin));
+
+	SANITY(write(fd, payload, payload_size) != payload_size);
 }
 
 int main(int argc, char **argv)
@@ -143,5 +166,5 @@ int main(int argc, char **argv)
 	loader = mmap(NULL, loader_size, PROT_READ, MAP_PRIVATE, fd_loader, 0);
 	SANITY(loader == MAP_FAILED);
 
-	write_file(loader, loader_size, fd_out);
+	write_file(loader, loader_size, out, file_size, fd_out);
 }
