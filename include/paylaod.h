@@ -9,6 +9,6 @@ struct result_binary {
 	uint64_t key[2];
 	uint64_t iv[2];
 	char payload[];
-} __attribute__((packed));
+} __attribute__((packed, aligned(8)));
 
 #endif /*  __PAYLOAD__H__ */

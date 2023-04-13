@@ -3,8 +3,9 @@
 #include "syscalls.h"
 #include "elf.h"
 #include "lib.h"
+#include <sys/cdefs.h>
 
-extern char payload[];
+extern char payload[] __attribute__((aligned(8)));
 
 #define dbg(str)	write(1, str, sizeof(str));
 #define STR(x)		_STR(x)
@@ -32,6 +33,15 @@ void memcpy(void *restrict _dest, const void *restrict _src, size_t n)
 
 	for(i = 0; i < n; i++)
 		dest[i] = src[i];
+}
+
+void memset(void *restrict _dest, int c, size_t n)
+{
+	char *dest = (char*)_dest;
+	unsigned long i;
+
+	for(i = 0; i < n; i++)
+		dest[i] = c;
 }
 
 static void map_elf(const void *payload)
@@ -69,7 +79,7 @@ static void map_elf(const void *payload)
 
 		dbg("[*] Mapped segment\n");
 
-		__builtin_memcpy(res, payload + cur->p_offset, cur->p_filesz);
+		__builtin_memcpy((void *) cur->p_vaddr, payload + cur->p_offset, cur->p_filesz);
 
 		{
 			unsigned long pflags = 0;
@@ -87,45 +97,34 @@ static void map_elf(const void *payload)
 		SANITY(ret < 0);
 	}
 }
-void* elf_base_addr(void *rsp) {
-    void *base_addr = NULL;
-    unsigned long argc = *(unsigned long*)rsp;
-    char **envp = rsp + (argc+2)*sizeof(unsigned long); // Указатель на первую
-                                                        // переменную среды
-    while(*envp++); // Проходимся по всем указателям на переменные среды
-    Elf64_auxv_t *aux = (Elf64_auxv_t*)envp; // Первая запись вспомогательного
-                                             // вектора
 
-    for(; aux->a_type != AT_NULL; aux++) {
-        // Если текущая запись содержит адрес заголовков программы
-        if(aux->a_type == AT_PHDR) {
-            // Вычитаем размер ELF заголовка, так как обычно заголовки
-            // программы располагаются срузу после него
-            base_addr = (void*)(aux->a_un.a_val - sizeof(Elf64_Ehdr));
-            break;
-        }
-    }
-
-    return base_addr;
-}
-
-static void __attribute__((noinline)) jump_to_binary(const void *bin, const void *sp)
+static void __attribute__((noinline, noreturn)) jump_to_binary(const void *ep, void *sp)
 {
-	unsigned long *stack = sp;
-	const Elf64_Ehdr *hdr = bin;
-
-	//*stack = 0xaaaaaaaaaaa;
-
-	asm volatile ("mov	%%rsp, %1\n"
-		      "xor	%%r13, %%r13\n"
+	asm volatile ("mov	%1, %%rsp\n"
+		      "xor	%%rax, %%rax\n"
+		      "xor	%%rcx, %%rcx\n"
+		      "xor	%%rsi, %%rsi\n"
+		      "xor	%%rdi, %%rdi\n"
+		      "xor	%%r8, %%r8\n"
+		      "xor	%%r9, %%r9\n"
+		      "xor	%%r10, %%r10\n"
+		      "xor	%%r11, %%r11\n"
+		      "xor	%%r12, %%r12\n"
+		      "xor	%%rbp, %%rbp\n"
+		      "popcnt	%%eax, %%eax\n"
+		      "test	%%rsp, %%rsp\n"
 		      "jmp	*%0"
-		      ::"b"(hdr->e_entry), "r"(sp));
+		      ::"b"(ep), "r"(sp));
+
+	__builtin_unreachable();
 }
 
-int main(char *sp)
+int main(int argc, char **argv)
 {
+	void *s = argv - 1;
 	struct result_binary *bin = (void *) &payload;
 	struct AES_ctx ctx;
+	Elf64_Ehdr *hdr = (void *) bin->payload;
 
 	dbg("[*] Loader starts\n");
 
@@ -137,7 +136,5 @@ int main(char *sp)
 	check_payload((void *) bin->payload);
 	map_elf((void *) bin->payload);
 
-	jump_to_binary((void *) bin->payload, sp);
-
-	exit(0);
+	jump_to_binary((const void *) hdr->e_entry, s);
 }

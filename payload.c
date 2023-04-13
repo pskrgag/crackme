@@ -2,5 +2,9 @@
 
 int main(void)
 {
-	printf("hello world\n");
+	char data[500];
+
+	printf("Enter txt: ");
+	fgets(data, sizeof(data), stdin);
+	_Exit(10);
 }
