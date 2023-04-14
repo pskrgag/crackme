@@ -15,6 +15,7 @@ typedef long ssize_t;
 #define __SYS_mprotect 10
 #define __SYS_munmap 11
 #define __SYS_brk 12
+#define __SYS_madvise 28
 #define __SYS_exit 60
 
 #define MAP_PRIVATE	0x02
@@ -26,6 +27,8 @@ typedef long ssize_t;
 #define PROT_WRITE	0x2		/* page can be written */
 #define PROT_EXEC	0x4		/* page can be executed */
 
+#define MADV_DONTDUMP   16
+
 #define UL(x)	((unsigned long) x)
 
 static ssize_t syscall1(int num, unsigned long arg)
@@ -33,16 +36,6 @@ static ssize_t syscall1(int num, unsigned long arg)
 	long ret;
 	asm volatile ("syscall" : "=a" (ret) : "a" (num),
 		      "D" (arg):
-		      "cc", "memory", "rcx",
-		      "r8", "r9", "r10", "r11" );
-	return ret;
-}
-
-static ssize_t syscall2(int num, unsigned long arg, unsigned long arg1)
-{
-	long ret;
-	asm volatile ("syscall" : "=a" (ret) : "a" (num),
-		      "D" (arg), "S" (arg1):
 		      "cc", "memory", "rcx",
 		      "r8", "r9", "r10", "r11" );
 	return ret;
@@ -89,6 +82,11 @@ static inline void *mmap(void *addr, size_t length, int prot, int flags, int fd,
 static inline int mprotect(void *addr, size_t len, int prot)
 {
 	return syscall3(__SYS_mprotect, UL(addr), len, prot);
+}
+
+static inline int madvise(void *addr, size_t length, int advice)
+{
+	return syscall3(__SYS_madvise, UL(addr), length, advice);
 }
 
 #endif

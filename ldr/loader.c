@@ -4,6 +4,7 @@
 #include "elf.h"
 #include "lib.h"
 #include <sys/cdefs.h>
+#include <sys/mman.h>
 
 extern char payload[] __attribute__((aligned(8)));
 
@@ -14,6 +15,7 @@ extern char payload[] __attribute__((aligned(8)));
 #define SANITY(x)	do { if (__builtin_expect(!!(x), 0)) { dbg("Error at " STR(__FILE__) ":" STR(__LINE__) "\n") exit(10); } } while (0)
 
 #define PAGE_DOWN(x)	(UL(x) & ~4095)
+#define PAGE_OFFSET(x)	(UL(x) & 4095)
 
 
 static void check_payload(const void *payload)
@@ -121,12 +123,16 @@ static void __attribute__((noinline, noreturn)) jump_to_binary(const void *ep, v
 
 int main(int argc, char **argv)
 {
+	(void)argc;
+
 	void *s = argv - 1;
 	struct result_binary *bin = (void *) &payload;
 	struct AES_ctx ctx;
 	Elf64_Ehdr *hdr = (void *) bin->payload;
 
 	dbg("[*] Loader starts\n");
+
+	SANITY(madvise((void *) PAGE_DOWN(bin->payload), bin->payload_size + PAGE_OFFSET(bin->payload), MADV_DONTDUMP));
 
 	AES_init_ctx_iv(&ctx, (void *) &bin->key, (void *) &bin->iv);
 	AES_CTR_xcrypt_buffer(&ctx, (void *) bin->payload, bin->payload_size);

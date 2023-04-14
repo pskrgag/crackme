@@ -84,21 +84,21 @@ static void *encrypt_elf(const char *file)
 
 static void write_file(const void *loader, size_t loader_size, const void *payload, size_t payload_size, int fd)
 {
-	Elf64_Ehdr ehdr = {};
+	Elf64_Ehdr ehdr;
 	Elf64_Phdr phdr;
 	ssize_t res;
 	struct result_binary bin;
-	char buf[] = {};
+	char buf[8] = {};
 
 	memcpy(ehdr.e_ident, ELFMAG, SELFMAG);
 	ehdr.e_ident[EI_CLASS] = ELFCLASS64;
 	ehdr.e_ident[EI_DATA] = ELFDATA2LSB;
 	ehdr.e_ident[EI_VERSION] = EV_CURRENT;
 	ehdr.e_ident[EI_OSABI] = ELFOSABI_NONE;
-	ehdr.e_type = ET_EXEC;
+	ehdr.e_type = ET_DYN;
 	ehdr.e_machine = EM_X86_64;
 	ehdr.e_version = EV_CURRENT;
-	ehdr.e_entry = (0x10000 + payload_ep + file_size + 4096) - ((0x10000 + payload_ep + file_size) % 4096);; // sizeof(Elf64_Ehdr) + sizeof(Elf64_Phdr);
+	ehdr.e_entry = 0; /* offset in load section */
 	ehdr.e_phoff = sizeof(Elf64_Ehdr);
 	ehdr.e_shoff = 0;
 	ehdr.e_flags = 0;
@@ -110,8 +110,8 @@ static void write_file(const void *loader, size_t loader_size, const void *paylo
 	ehdr.e_shstrndx = 0;
 
 	phdr.p_type = PT_LOAD;
-	phdr.p_offset = 0x1000; // sizeof(Elf64_Ehdr) + sizeof(Elf64_Phdr);
-	phdr.p_vaddr = (0x10000 + payload_ep + file_size + 4096) - ((0x10000 + payload_ep + file_size) % 4096);
+	phdr.p_offset = 0x1000;
+	phdr.p_vaddr = 0;
 	phdr.p_paddr = 0;
 	phdr.p_filesz = loader_size + file_size;
 	phdr.p_memsz = phdr.p_filesz;
@@ -125,7 +125,7 @@ static void write_file(const void *loader, size_t loader_size, const void *paylo
 
 	/* p_offset must be page aligned, so move cursor to page */
 
-	lseek(fd, 4096, SEEK_SET);
+	lseek(fd, 0x1000, SEEK_SET);
 
 	SANITY(write(fd, loader, loader_size) != loader_size);
 	SANITY(write(fd, buf, loader_size % 8) != loader_size % 8);	/* satisfy alignment */
