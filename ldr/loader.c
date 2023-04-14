@@ -83,6 +83,8 @@ static void map_elf(const void *payload)
 
 		__builtin_memcpy((void *) cur->p_vaddr, payload + cur->p_offset, cur->p_filesz);
 
+		SANITY(madvise((void *) res, cur->p_memsz, MADV_DONTDUMP));
+
 		{
 			unsigned long pflags = 0;
 
@@ -141,6 +143,7 @@ int main(int argc, char **argv)
 
 	check_payload((void *) bin->payload);
 	map_elf((void *) bin->payload);
+
 
 	jump_to_binary((const void *) hdr->e_entry, s);
 }
