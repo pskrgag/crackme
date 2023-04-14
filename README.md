@@ -1,9 +1,10 @@
 ## usage
 
+```bash
 $ make
 $ ./packer payload <output-name>
 $ ./<output-name>
-
+```
 
 ## test data
 
